@@ -161,8 +161,8 @@ const S = {
   step: 1,
   dpf1Rows: null, dpf1Name: null,  // parsed rows (supports CSV or XLSX)
   dpf2Rows: null, dpf2Name: null,
-  dpf1Start: 3912,  // file line number (1-indexed) to start scanning from
-  dpf2Start: 2785,
+  trackingRows: null, trackingName: null, // Atradius tracking sheet (already-sent IDs)
+  alreadySentIds: new Set(),
   candidates: [],
   candidateData: {}, // checkoutId -> full DPF row (for Atradius file generation)
   sigmaFile: null, sigmaName: null,
@@ -257,36 +257,60 @@ function isActionDate(v) {
   return true;
 }
 
+function buildAlreadySentIds() {
+  // Extract checkout IDs from the tracking sheet.
+  // Tries common column name variants (case-insensitive).
+  const rows = S.trackingRows || [];
+  const ids = new Set();
+  const colNames = ['Checkout ID', 'checkout_id', 'id_checkout', 'CheckoutID', 'Checkout Id'];
+  for (const row of rows) {
+    let val = null;
+    // Try known names first
+    for (const col of colNames) {
+      if (row[col] != null) { val = row[col]; break; }
+    }
+    // Fallback: scan all keys for one that looks like "checkout"
+    if (val == null) {
+      const key = Object.keys(row).find(k => /checkout/i.test(k));
+      if (key) val = row[key];
+    }
+    if (val == null) continue;
+    const cid = String(val).trim().replace(/\.0$/, '');
+    if (cid && cid !== 'null') ids.add(cid);
+  }
+  S.alreadySentIds = ids;
+}
+
 function processDPFs() {
+  buildAlreadySentIds();
+
   const seen = new Set();
   const candidates = [];
 
   const sources = [
-    { rows: S.dpf1Rows, source: 'DPF.1', startLine: S.dpf1Start },
-    { rows: S.dpf2Rows, source: 'DPF.2', startLine: S.dpf2Start }
+    { rows: S.dpf1Rows, source: 'DPF.1' },
+    { rows: S.dpf2Rows, source: 'DPF.2' }
   ];
 
-  for (const { rows, source, startLine } of sources) {
-    // startLine is 1-indexed file line number; header = line 1, data starts line 2 = index 0
-    // so data index = file line - 2
-    const startIndex = Math.max(0, startLine - 2);
-    const subset = rows.slice(startIndex);
-
-    for (const row of subset) {
+  for (const { rows, source } of sources) {
+    for (const row of rows) {
       const cid = String(row['checkout_id'] || '').trim().replace(/\.0$/, '');
       if (!cid || cid === 'checkout_id' || cid === 'null') continue;
       if (seen.has(cid)) continue;
+
+      // Skip if already sent to Atradius (per tracking sheet)
+      if (S.alreadySentIds.has(cid)) continue;
 
       // Rule 1: Action 1.1, 1.2, 1.3 must all contain dates (not empty, not 'x')
       if (!isActionDate(row['Action 1.1'])) continue;
       if (!isActionDate(row['Action 1.2'])) continue;
       if (!isActionDate(row['Action 1.3'])) continue;
 
-      // Rule 2: Payment link (BQ) must be empty
+      // Rule 2: Payment link must be empty
       const payLink = String(row['Payment link'] || '').trim();
       if (payLink !== '' && payLink !== 'nan') continue;
 
-      // Rule 3: 'Sent to Atradius?' must be empty
+      // Rule 3: 'Sent to Atradius?' column must be empty
       const sent = String(row['Sent to Atradius?'] || '').trim();
       if (sent !== '' && sent !== 'nan') continue;
 
@@ -435,35 +459,37 @@ function renderStep1() {
     </div>`;
   };
 
-  const allReady = S.dpf1Rows && S.dpf2Rows;
+  const allReady = S.dpf1Rows && S.dpf2Rows && S.trackingRows;
+  const missingFiles = [
+    !S.dpf1Rows && 'DPF.1',
+    !S.dpf2Rows && 'DPF.2',
+    !S.trackingRows && 'Atradius tracking sheet'
+  ].filter(Boolean);
 
   return `<div class="card">
     <div class="card-header">
-      <div class="card-title">Upload your DPF files</div>
-      <div class="card-desc">These are read locally in your browser — nothing is sent anywhere.</div>
+      <div class="card-title">Upload your files</div>
+      <div class="card-desc">All files are read locally in your browser — nothing is sent anywhere.</div>
     </div>
     <div class="upload-grid" style="grid-template-columns: repeat(2, 1fr)">
       ${z('dpf1', 'DPF.1 — Disputed', '.csv or .xlsx', '.csv,.xlsx,.xls')}
       ${z('dpf2', 'DPF.2 — Failed', '.csv or .xlsx', '.csv,.xlsx,.xls')}
     </div>
     <div style="background:var(--gray-light);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px">
-      <div style="font-size:12px;font-weight:700;margin-bottom:10px;color:var(--text-muted)">START ROW — update these each run to match the first new row in each file</div>
-      <div style="display:flex;gap:24px;flex-wrap:wrap">
-        <div class="field-row" style="margin-bottom:0">
-          <label>DPF.1 start line:</label>
-          <input type="number" value="${S.dpf1Start}" min="2" style="width:90px" onchange="S.dpf1Start=parseInt(this.value)||3912; render();">
-        </div>
-        <div class="field-row" style="margin-bottom:0">
-          <label>DPF.2 start line:</label>
-          <input type="number" value="${S.dpf2Start}" min="2" style="width:90px" onchange="S.dpf2Start=parseInt(this.value)||2785; render();">
-        </div>
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:var(--text-muted)">ATRADIUS TRACKING SHEET</div>
+      <div style="font-size:13px;color:var(--text);margin-bottom:10px">
+        Download the tracking sheet as <strong>Excel (.xlsx)</strong> or <strong>CSV</strong>, then upload it below.
+        The tool uses it to identify which checkouts have already been sent to Atradius and exclude them.
       </div>
+      <a href="https://docs.google.com/spreadsheets/d/1C3836wgHOdjbZXuyCAClHWpYXUzJ5rYRFh5Lnu46BfI/edit?gid=0#gid=0" target="_blank" class="sigma-link" style="display:inline-block;margin-bottom:12px">🔗 Open tracking sheet to download</a>
+      ${z('tracking', 'Atradius Tracking Sheet', '.csv or .xlsx', '.csv,.xlsx,.xls')}
+      ${S.alreadySentIds && S.alreadySentIds.size > 0 ? `<div style="margin-top:8px;font-size:12px;color:var(--success,#16a34a);font-weight:600">✅ ${S.alreadySentIds.size} already-sent checkout IDs loaded</div>` : ''}
     </div>
     <div class="action-row">
       <button class="btn btn-primary" id="process-btn" onclick="runStep1(this)" ${allReady ? '' : 'disabled'}>
         Process Files &rarr;
       </button>
-      ${allReady ? '' : '<span style="font-size:12px;color:var(--text-muted)">Upload both DPF files to continue</span>'}
+      ${allReady ? '' : `<span style="font-size:12px;color:var(--text-muted)">Still needed: ${missingFiles.join(', ')}</span>`}
     </div>
   </div>`;
 }
@@ -745,7 +771,7 @@ function copyIds() {
 }
 
 function resetAll() {
-  Object.assign(S, { step: 1, dpf1Rows: null, dpf1Name: null, dpf2Rows: null, dpf2Name: null, dpf1Start: 3912, dpf2Start: 2785, candidates: [], candidateData: {}, sigmaFile: null, sigmaName: null, finalList: [] });
+  Object.assign(S, { step: 1, dpf1Rows: null, dpf1Name: null, dpf2Rows: null, dpf2Name: null, trackingRows: null, trackingName: null, alreadySentIds: new Set(), candidates: [], candidateData: {}, sigmaFile: null, sigmaName: null, finalList: [] });
   render();
 }
 
