@@ -316,6 +316,7 @@ function processDPFs() {
 
       const dueDate = toDate(row['due_date']);
       if (!dueDate || dueDate.getFullYear() > 2100) continue;
+      if (dueDate < new Date('2025-01-01')) continue;
 
       seen.add(cid);
       candidates.push({
