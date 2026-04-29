@@ -166,7 +166,8 @@ const S = {
   candidates: [],
   candidateData: {}, // checkoutId -> full DPF row (for Atradius file generation)
   sigmaFile: null, sigmaName: null,
-  finalList: []
+  finalList: [],
+  filterDate: null
 };
 
 const STEPS = [
@@ -342,7 +343,11 @@ function processSigma(sigmaRows) {
   S.finalList = S.candidates.filter(c => sigmaIds.has(c.checkoutId));
 }
 
-function buildAtradiusShareFile() {
+function buildAtradiusShareFile(filteredIds) {
+  // Use filtered list if provided, otherwise fall back to full finalList
+  const list = filteredIds
+    ? S.finalList.filter(c => filteredIds.includes(c.checkoutId))
+    : S.finalList;
   const wb = XLSX.utils.book_new();
 
   // ── Debtor Details (one row per unique retailer) ──────────────────────
@@ -356,7 +361,7 @@ function buildAtradiusShareFile() {
   const seenRetailers = new Set();
   const debtorRows = [debtorHeaders];
 
-  for (const item of S.finalList) {
+  for (const item of list) {
     if (seenRetailers.has(item.retailerId)) continue;
     seenRetailers.add(item.retailerId);
     const r = S.candidateData[item.checkoutId] || {};
@@ -589,7 +594,13 @@ function renderStep4() {
   const final = S.finalList;
   const excluded = S.candidates.length - final.length;
 
-  const rows = final.map((c, i) => `<tr>
+  // Apply optional due date filter
+  const displayed = S.filterDate
+    ? final.filter(c => c.dueDate >= new Date(S.filterDate))
+    : final;
+  const filteredOut = final.length - displayed.length;
+
+  const rows = displayed.map((c, i) => `<tr>
     <td style="color:var(--text-muted);font-size:11px">${i + 1}</td>
     <td><code>${c.checkoutId}</code></td>
     <td>${c.retailerName}</td>
@@ -602,17 +613,29 @@ function renderStep4() {
   <div class="card">
     <div class="card-header">
       <div class="card-title">✅ Final escalation list</div>
-      <div class="card-desc">${excluded} checkout${excluded !== 1 ? 's' : ''} removed (paid / not in Sigma). Ready to add to Atradius worksheet.</div>
+      <div class="card-desc">${excluded} checkout${excluded !== 1 ? 's' : ''} removed (paid / not in Sigma).</div>
     </div>
     <div class="stats-row">
-      <div class="stat"><div class="stat-num green">${final.length}</div><div class="stat-label">To escalate</div></div>
+      <div class="stat"><div class="stat-num green">${displayed.length}</div><div class="stat-label">To escalate</div></div>
       <div class="stat"><div class="stat-num gray">${excluded}</div><div class="stat-label">Removed (paid)</div></div>
-      <div class="stat" style="grid-column:span 2"><div class="amount-big">${fmtTotal(final)}</div><div class="stat-label">Total value to recover</div></div>
+      <div class="stat" style="grid-column:span 2"><div class="amount-big">${fmtTotal(displayed)}</div><div class="stat-label">Total value to recover</div></div>
     </div>
-    ${final.length > 0 ? `<div class="table-wrap"><table>
+
+    <div style="background:var(--gray-light);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">FILTER BY DUE DATE — only escalate checkouts due on or after:</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <input type="date" value="${S.filterDate || ''}" onchange="S.filterDate = this.value || null; render();" style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px">
+        ${S.filterDate ? `
+          <span style="font-size:12px;color:var(--text-muted)">Hiding <strong>${filteredOut}</strong> checkout${filteredOut !== 1 ? 's' : ''} with earlier due dates</span>
+          <button class="btn btn-outline btn-sm" onclick="S.filterDate=null; render()">✕ Clear filter</button>
+        ` : '<span style="font-size:12px;color:var(--text-muted)">No filter applied — showing all ${final.length} checkout${final.length !== 1 ? "s" : ""}</span>'}
+      </div>
+    </div>
+
+    ${displayed.length > 0 ? `<div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Checkout ID</th><th>Retailer Name</th><th>Retailer ID</th><th>Due Date</th><th>Amount</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table></div>` : '<div class="empty"><div class="empty-icon">🎉</div>No checkouts to escalate — all are paid!</div>'}
+    </table></div>` : '<div class="empty"><div class="empty-icon">🎉</div>No checkouts to escalate — all are paid or filtered out!</div>'}
   </div>
 
   <div class="card">
@@ -626,7 +649,7 @@ function renderStep4() {
         <div class="reminder-title">1 — Update the tracking Google Sheet</div>
         <div class="reminder-desc">Copy the rows below and paste them into the Atradius recovery tracking sheet. Fill in the <strong>Note</strong> column manually.</div>
         <a href="https://docs.google.com/spreadsheets/d/1C3836wgHOdjbZXuyCAClHWpYXUzJ5rYRFh5Lnu46BfI/edit?gid=0#gid=0" target="_blank" class="sigma-link" style="margin-bottom:10px;display:inline-block">🔗 Open Google Sheet</a>
-        ${final.length > 0 ? `
+        ${displayed.length > 0 ? `
         <div style="position:relative;margin-top:4px">
           <div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto">
             <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px">
@@ -648,7 +671,7 @@ function renderStep4() {
                   const mm = String(today.getMonth() + 1).padStart(2, '0');
                   const yyyy = today.getFullYear();
                   const todayStr = `${dd}/${mm}/${yyyy}`;
-                  return final.map((c, i) => `<tr style="background:${i%2===0?'#fff':'var(--gray-light)'}">
+                  return displayed.map((c, i) => `<tr style="background:${i%2===0?'#fff':'var(--gray-light)'}">
                     <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${c.retailerName}</td>
                     <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace">${c.checkoutId}</td>
                     <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace">${c.retailerId}</td>
@@ -671,12 +694,12 @@ function renderStep4() {
         <div class="reminder-title">2 — Run the Sigma query to get order data</div>
         <div class="reminder-desc">Run the query on Sigma using the filter below, then paste the results into the <strong>Financial Details</strong> tab of the downloaded file before sending to Atradius.</div>
         <a href="https://docs.google.com/spreadsheets/d/1V791lA5bQSx-B1WQhwRSyBZp7ZsD4XfH9wh1MQkEyTk/edit?gid=1454968430#gid=1454968430" target="_blank" class="sigma-link" style="margin-top:6px;display:inline-block">🔗 Open Google Sheet</a>
-        ${final.length > 0 ? `
+        ${displayed.length > 0 ? `
         <div style="margin-top:10px">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">SQL WHERE filter — paste into the query:</div>
           <div style="position:relative">
             <pre id="sql-filter" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 40px 10px 12px;font-size:12px;font-family:monospace;white-space:pre-wrap;word-break:break-all;margin:0;color:var(--text)">${(() => {
-              const ids = final.map(c => `'${c.checkoutId}'`);
+              const ids = displayed.map(c => `'${c.checkoutId}'`);
               const chunkSize = 4;
               const lines = [];
               for (let i = 0; i < ids.length; i += chunkSize) {
@@ -690,7 +713,7 @@ function renderStep4() {
         <div style="margin-top:10px">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">3 — Download & complete the Atradius sharing file</div>
           <div style="font-size:13px;color:var(--text-muted)">Downloads the file with <strong>Debtor Details</strong> pre-filled. Paste the Sigma query results into the <strong>Financial Details</strong> tab, then send to Atradius.</div>
-          ${final.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="downloadAtradiusFile()" style="margin-top:6px">⬇️ Download Atradius Sharing File</button>` : ''}
+          ${displayed.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="downloadAtradiusFile(${JSON.stringify(displayed.map(c=>c.checkoutId))})" style="margin-top:6px">⬇️ Download Atradius Sharing File</button>` : ''}
         </div>
       </div>
     </div>
@@ -783,9 +806,9 @@ function copyFilter() {
   });
 }
 
-function downloadAtradiusFile() {
+function downloadAtradiusFile(filteredIds) {
   try {
-    const wb = buildAtradiusShareFile();
+    const wb = buildAtradiusShareFile(filteredIds || null);
     const today = new Date();
     const dd = String(today.getDate()).padStart(2, '0');
     const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -808,7 +831,7 @@ function copyIds() {
 }
 
 function resetAll() {
-  Object.assign(S, { step: 1, dpf1Rows: null, dpf1Name: null, dpf2Rows: null, dpf2Name: null, trackingRows: null, trackingName: null, alreadySentIds: new Set(), candidates: [], candidateData: {}, sigmaFile: null, sigmaName: null, finalList: [] });
+  Object.assign(S, { step: 1, dpf1Rows: null, dpf1Name: null, dpf2Rows: null, dpf2Name: null, trackingRows: null, trackingName: null, alreadySentIds: new Set(), candidates: [], candidateData: {}, sigmaFile: null, sigmaName: null, finalList: [], filterDate: null });
   render();
 }
 
