@@ -622,17 +622,53 @@ function renderStep4() {
 
     <div class="reminder">
       <div class="reminder-icon">📊</div>
-      <div>
+      <div style="flex:1;min-width:0">
         <div class="reminder-title">1 — Update the tracking Google Sheet</div>
-        <div class="reminder-desc">Log the new escalations in the Atradius recovery tracking sheet.</div>
-        <a href="https://docs.google.com/spreadsheets/d/1C3836wgHOdjbZXuyCAClHWpYXUzJ5rYRFh5Lnu46BfI/edit?gid=0#gid=0" target="_blank" class="sigma-link">🔗 Open Google Sheet</a>
+        <div class="reminder-desc">Copy the rows below and paste them into the Atradius recovery tracking sheet. Fill in the <strong>Note</strong> column manually.</div>
+        <a href="https://docs.google.com/spreadsheets/d/1C3836wgHOdjbZXuyCAClHWpYXUzJ5rYRFh5Lnu46BfI/edit?gid=0#gid=0" target="_blank" class="sigma-link" style="margin-bottom:10px;display:inline-block">🔗 Open Google Sheet</a>
+        ${final.length > 0 ? `
+        <div style="position:relative;margin-top:4px">
+          <div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px">
+              <thead style="position:sticky;top:0;z-index:1">
+                <tr style="background:var(--gray-light)">
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Retailer name</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Checkout ID</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Retailer ID</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Amount</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Due Date</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Date Added / transferred to Atradius</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(() => {
+                  const today = new Date();
+                  const dd = String(today.getDate()).padStart(2, '0');
+                  const mm = String(today.getMonth() + 1).padStart(2, '0');
+                  const yyyy = today.getFullYear();
+                  const todayStr = `${dd}/${mm}/${yyyy}`;
+                  return final.map((c, i) => `<tr style="background:${i%2===0?'#fff':'var(--gray-light)'}">
+                    <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${c.retailerName}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace">${c.checkoutId}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace">${c.retailerId}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">${fmtAmt(c.amount)}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${fmtDate(c.dueDate)}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${todayStr}</td>
+                    <td style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text-muted)"></td>
+                  </tr>`).join('');
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>` : ''}
       </div>
     </div>
 
     <div class="reminder">
       <div class="reminder-icon">📤</div>
       <div style="flex:1;min-width:0">
-        <div class="reminder-title">2 — Run the Sigma query to get Financial Details data</div>
+        <div class="reminder-title">2 — Run the Sigma query to get order data</div>
         <div class="reminder-desc">Run the query on Sigma using the filter below, then paste the results into the <strong>Financial Details</strong> tab of the downloaded file before sending to Atradius.</div>
         <a href="https://docs.google.com/spreadsheets/d/1V791lA5bQSx-B1WQhwRSyBZp7ZsD4XfH9wh1MQkEyTk/edit?gid=1454968430#gid=1454968430" target="_blank" class="sigma-link" style="margin-top:6px;display:inline-block">🔗 Open Google Sheet</a>
         ${final.length > 0 ? `
