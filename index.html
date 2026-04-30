@@ -404,9 +404,10 @@ function buildAtradiusShareFile(filteredIds) {
     if (seenRetailers.has(item.retailerId)) continue;
     seenRetailers.add(item.retailerId);
     const r = S.candidateData[item.checkoutId] || {};
-    const currency = String(r['retailer_currency'] || 'EUR').trim();
 
-    // Contact fields from new DPF columns (BZ–CG)
+    // VAT number — column Y
+    const vatNumber = String(r['retailer_vat_number'] || '').trim();
+
     const street = String(r['street'] || '').trim();
     const city = String(r['city'] || '').trim();
     const postCode = String(r['cd_postal'] || '').trim();
@@ -416,14 +417,20 @@ function buildAtradiusShareFile(filteredIds) {
     const firstName = String(r['first_name'] || '').trim();
     const lastName = String(r['last_name'] || '').trim();
     const contactPerson = [firstName, lastName].filter(Boolean).join(' ');
-    const email = String(r['email'] || '').trim();
+    // Email — column CH; try flexible key match
+    const emailKey = Object.keys(r).find(k => /^email$/i.test(k.trim()));
+    const email = emailKey ? String(r[emailKey] || '').trim() : '';
     // Country: prefer the dedicated country column, fall back to retailer_country
     const country = String(r['country'] || r['retailer_country'] || '').trim();
+    // Currency: use GBP for UK retailers, otherwise use retailer currency
+    const baseCurrency = String(r['retailer_currency'] || 'EUR').trim();
+    const isUK = /united.?kingdom|^uk$|^gb$/i.test(country);
+    const currencyCode = isUK ? 'GBP' : baseCurrency;
 
     debtorRows.push([
       parseInt(item.retailerId) || item.retailerId,
       item.retailerName,
-      String(r['retailer_vat_number'] || '').trim(),
+      vatNumber,
       street,
       postCode,
       city,
@@ -431,7 +438,7 @@ function buildAtradiusShareFile(filteredIds) {
       phone,
       contactPerson,
       email,
-      `["${currency}"]`,
+      `["${currencyCode}"]`,
       ''
     ]);
   }
@@ -762,9 +769,51 @@ function renderStep4() {
     </div>
 
     <div class="reminder">
+      <div class="reminder-icon">📁</div>
+      <div style="flex:1;min-width:0">
+        <div class="reminder-title">2 — Update the "Atradius: all checkouts transferred" tab in DPF.1 and DPF.2</div>
+        <div class="reminder-desc">Paste the same rows below into the <strong>Atradius: all checkouts transferred</strong> tab on both DPF.1 and DPF.2 files so they reflect the newly escalated checkouts.</div>
+        ${displayed.length > 0 ? `
+        <div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto;margin-top:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px">
+            <thead style="position:sticky;top:0;z-index:1">
+              <tr style="background:var(--gray-light)">
+                <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Retailer name</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Checkout ID</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Retailer ID</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Amount</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Due Date</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Date Added / transferred to Atradius</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:700;color:var(--gray);border-bottom:1px solid var(--border);white-space:nowrap">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(() => {
+                const today = new Date();
+                const dd = String(today.getDate()).padStart(2, '0');
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const yyyy = today.getFullYear();
+                const todayStr = `${dd}/${mm}/${yyyy}`;
+                return displayed.map((c, i) => `<tr style="background:${i%2===0?'#fff':'var(--gray-light)'}">
+                  <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${c.retailerName}</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace">${c.checkoutId}</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace">${c.retailerId}</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">${fmtAmt(c.amount)}</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${fmtDate(c.dueDate)}</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${todayStr}</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text-muted)"></td>
+                </tr>`).join('');
+              })()}
+            </tbody>
+          </table>
+        </div>` : ''}
+      </div>
+    </div>
+
+    <div class="reminder">
       <div class="reminder-icon">📤</div>
       <div style="flex:1;min-width:0">
-        <div class="reminder-title">2 — Run the Sigma query to get order data</div>
+        <div class="reminder-title">3 — Run the Sigma query to get order data</div>
         <div class="reminder-desc">Run the query on Sigma using the filter below, then paste the results into the <strong>Financial Details</strong> tab of the downloaded file before sending to Atradius.</div>
         <a href="https://docs.google.com/spreadsheets/d/1V791lA5bQSx-B1WQhwRSyBZp7ZsD4XfH9wh1MQkEyTk/edit?gid=1454968430#gid=1454968430" target="_blank" class="sigma-link" style="margin-top:6px;display:inline-block">🔗 Open Google Sheet</a>
         ${displayed.length > 0 ? `
@@ -784,7 +833,7 @@ function renderStep4() {
           </div>
         </div>` : ''}
         <div style="margin-top:10px">
-          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">3 — Download & complete the Atradius sharing file</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">4 — Download & complete the Atradius sharing file</div>
           <div style="font-size:13px;color:var(--text-muted)">Downloads the file with <strong>Debtor Details</strong> pre-filled. Paste the Sigma query results into the <strong>Financial Details</strong> tab, then send to Atradius.</div>
           ${displayed.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="downloadAtradiusFile()" style="margin-top:6px">⬇️ Download Atradius Sharing File</button>` : ''}
         </div>
