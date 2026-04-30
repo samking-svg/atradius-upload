@@ -786,7 +786,7 @@ function renderStep4() {
         <div style="margin-top:10px">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">3 — Download & complete the Atradius sharing file</div>
           <div style="font-size:13px;color:var(--text-muted)">Downloads the file with <strong>Debtor Details</strong> pre-filled. Paste the Sigma query results into the <strong>Financial Details</strong> tab, then send to Atradius.</div>
-          ${displayed.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="downloadAtradiusFile(${JSON.stringify(displayed.map(c=>c.checkoutId))})" style="margin-top:6px">⬇️ Download Atradius Sharing File</button>` : ''}
+          ${displayed.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="downloadAtradiusFile()" style="margin-top:6px">⬇️ Download Atradius Sharing File</button>` : ''}
         </div>
       </div>
     </div>
@@ -898,9 +898,13 @@ function copyFilter() {
   });
 }
 
-function downloadAtradiusFile(filteredIds) {
+function downloadAtradiusFile() {
   try {
-    const wb = buildAtradiusShareFile(filteredIds || null);
+    // Recompute the displayed list from state (respects the due date filter)
+    const list = S.filterDate
+      ? S.finalList.filter(c => c.dueDate >= new Date(S.filterDate))
+      : S.finalList;
+    const wb = buildAtradiusShareFile(list.map(c => c.checkoutId));
     const today = new Date();
     const dd = String(today.getDate()).padStart(2, '0');
     const mm = String(today.getMonth() + 1).padStart(2, '0');
