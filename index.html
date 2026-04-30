@@ -405,8 +405,9 @@ function buildAtradiusShareFile(filteredIds) {
     seenRetailers.add(item.retailerId);
     const r = S.candidateData[item.checkoutId] || {};
 
-    // VAT number — column Y
-    const vatNumber = String(r['retailer_vat_number'] || '').trim();
+    // VAT number — column Y (trim key to handle any stray whitespace in header)
+    const vatKey = Object.keys(r).find(k => k.trim() === 'retailer_vat_number');
+    const vatNumber = vatKey ? String(r[vatKey] || '').trim() : '';
 
     const street = String(r['street'] || '').trim();
     const city = String(r['city'] || '').trim();
